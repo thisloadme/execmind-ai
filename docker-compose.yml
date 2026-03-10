@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: execmind-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - fastapi
+    restart: unless-stopped
+
+  fastapi:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: execmind-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - OLLAMA_URL=${OLLAMA_URL}
+      - QDRANT_URL=${QDRANT_URL}
+      - JWT_PRIVATE_KEY_PATH=${JWT_PRIVATE_KEY_PATH}
+      - JWT_PUBLIC_KEY_PATH=${JWT_PUBLIC_KEY_PATH}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - APP_NAME=${APP_NAME}
+      - APP_ENV=${APP_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - LLM_MODEL=${LLM_MODEL}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
+    volumes:
+      - ./data/documents:/data/documents
+      - ./keys:/keys:ro
+    networks:
+      - backend
+      - internal
+      - ai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: execmind-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - ai
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    container_name: execmind-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      - internal
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: execmind-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
+  ai:
+    driver: bridge
+    internal: true
+
+volumes:
+  ollama_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  postgres_data:
+    driver: local

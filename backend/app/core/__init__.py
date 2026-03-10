@@ -1,0 +1,1 @@
+"""ExecMind - Core package init."""

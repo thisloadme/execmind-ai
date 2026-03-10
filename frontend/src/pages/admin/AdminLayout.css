@@ -1,0 +1,422 @@
+/* ─── Admin Layout ──────────────────────────── */
+
+.admin-layout {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+}
+
+.admin-sidebar {
+  width: 260px;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width var(--transition-normal);
+}
+
+.admin-sidebar.collapsed {
+  width: 68px;
+}
+
+.admin-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.collapse-btn .rotated {
+  transform: rotate(180deg);
+}
+
+.admin-nav {
+  flex: 1;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.admin-nav-item:hover {
+  background: var(--color-bg-card-hover);
+  color: var(--color-text-primary);
+}
+
+.admin-nav-item.active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent-hover);
+  border: 1px solid rgba(124, 92, 252, 0.2);
+}
+
+.admin-sidebar-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 16px;
+}
+
+.back-link {
+  margin: 8px;
+}
+
+.admin-sidebar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.admin-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ─── Admin Main Content ────────────────────── */
+
+.admin-main {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+}
+
+/* ─── Admin Page Components ─────────────────── */
+
+.admin-page {
+  padding: 32px;
+  max-width: 1200px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.admin-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+
+.admin-page-title {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.admin-page-subtitle {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+/* ─── Stats Cards ───────────────────────────── */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.stat-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 20px;
+  transition: all var(--transition-fast);
+}
+
+.stat-card:hover {
+  border-color: var(--color-accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.stat-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-card-icon.purple {
+  background: rgba(124, 92, 252, 0.15);
+  color: var(--color-accent);
+}
+.stat-card-icon.blue {
+  background: rgba(96, 165, 250, 0.15);
+  color: var(--color-info);
+}
+.stat-card-icon.green {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--color-success);
+}
+.stat-card-icon.orange {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--color-warning);
+}
+
+.stat-card-label {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.stat-card-value {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+/* ─── Data Table ────────────────────────────── */
+
+.data-table-wrapper {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.data-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.data-table-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.data-table-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 12px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.data-table td {
+  padding: 12px 20px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.data-table-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-muted);
+}
+
+/* ─── Modal ─────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.modal-content {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 28px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ─── Upload Zone ───────────────────────────── */
+
+.upload-zone {
+  border: 2px dashed var(--color-border);
+  border-radius: 14px;
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: 24px;
+}
+
+.upload-zone:hover,
+.upload-zone.dragging {
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+}
+
+.upload-zone-icon {
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+}
+
+.upload-zone-text {
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.upload-zone-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* ─── Progress Bar ──────────────────────────── */
+
+.progress-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), #6246ea);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* ─── Filters ───────────────────────────────── */
+
+.filters-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.filter-select {
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  outline: none;
+  min-width: 160px;
+}
+
+.filter-select:focus {
+  border-color: var(--color-border-focus);
+}
+
+/* ─── Pagination ────────────────────────────── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.pagination-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--color-bg-card-hover);
+  color: var(--color-text-primary);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  padding: 0 12px;
+}

@@ -1,0 +1,1 @@
+"""ExecMind - App package init."""
