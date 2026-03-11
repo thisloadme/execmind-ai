@@ -226,6 +226,21 @@ export default function ChatPage() {
     }
   }, [inputValue, isStreaming, activeSessionId, selectedCollection]);
 
+  // ─── Feedback Handlers ─────────────────────────
+
+  const handleFeedback = async (messageId, value) => {
+    try {
+      await chatApi.submitFeedback(messageId, value);
+      setMessages((prev) => 
+        prev.map((msg) => 
+          msg.id === messageId ? { ...msg, feedback: value } : msg
+        )
+      );
+    } catch (err) {
+      console.error('Failed to submit feedback:', err);
+    }
+  };
+
   // ─── Handle keyboard shortcuts ─────────────────
 
   const handleKeyDown = (e) => {
@@ -458,17 +473,28 @@ export default function ChatPage() {
                           <span>Sumber Dokumen</span>
                         </div>
                         <div className="sources-list">
-                          {msg.sources.map((source, i) => (
-                            <div key={i} className="source-card">
-                              <div className="source-title">{source.doc_title}</div>
-                              <div className="source-meta">
-                                {source.page > 0 && <span>Hal. {source.page}</span>}
-                                <span className="source-score">
-                                  Relevansi: {(source.score * 100).toFixed(0)}%
-                                </span>
+                          {(() => {
+                            const uniqueSources = [];
+                            const seen = new Set();
+                            msg.sources.forEach(source => {
+                              const key = `${source.doc_title}|${source.page}|${(source.score * 100).toFixed(0)}`;
+                              if (!seen.has(key)) {
+                                seen.add(key);
+                                uniqueSources.push(source);
+                              }
+                            });
+                            return uniqueSources.map((source, i) => (
+                              <div key={i} className="source-card">
+                                <div className="source-title">{source.doc_title}</div>
+                                <div className="source-meta">
+                                  {source.page > 0 && <span>Hal. {source.page}</span>}
+                                  <span className="source-score">
+                                    Relevansi: {(source.score * 100).toFixed(0)}%
+                                  </span>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            ));
+                          })()}
                         </div>
                       </div>
                     )}
@@ -476,11 +502,21 @@ export default function ChatPage() {
                     {/* Feedback */}
                     {msg.role === 'assistant' && msg.content && !isStreaming && (
                       <div className="message-actions">
-                        <button className="btn btn-icon btn-ghost btn-sm feedback-btn">
-                          <ThumbsUp size={14} />
+                        <button 
+                          className="btn btn-icon btn-ghost btn-sm feedback-btn"
+                          onClick={() => handleFeedback(msg.id, 1)}
+                          title="Jawaban membantu"
+                          style={{ color: msg.feedback === 1 ? 'var(--color-accent)' : undefined }}
+                        >
+                          <ThumbsUp size={14} fill={msg.feedback === 1 ? 'currentColor' : 'none'} />
                         </button>
-                        <button className="btn btn-icon btn-ghost btn-sm feedback-btn">
-                          <ThumbsDown size={14} />
+                        <button 
+                          className="btn btn-icon btn-ghost btn-sm feedback-btn"
+                          onClick={() => handleFeedback(msg.id, -1)}
+                          title="Jawaban tidak membantu"
+                          style={{ color: msg.feedback === -1 ? 'var(--color-danger, #f87171)' : undefined }}
+                        >
+                          <ThumbsDown size={14} fill={msg.feedback === -1 ? 'currentColor' : 'none'} />
                         </button>
                       </div>
                     )}
