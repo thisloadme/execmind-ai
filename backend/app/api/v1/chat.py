@@ -300,6 +300,9 @@ async def send_message(
                     stream_state["sources"] = chunk.get("sources", [])
                     yield f"event: sources\ndata: {json.dumps({'sources': stream_state['sources']})}\n\n"
 
+                elif chunk_type == "action":
+                    yield f"event: action\ndata: {json.dumps({'action_name': chunk.get('action_name'), 'payload': chunk.get('payload')})}\n\n"
+
                 elif chunk_type == "done":
                     stream_state["tokens"] = chunk.get("tokens_used", 0)
                     stream_state["latency"] = chunk.get("latency_ms", 0)

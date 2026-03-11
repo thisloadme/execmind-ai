@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Ollama
     OLLAMA_URL: str = "http://ollama:11434"
     OLLAMA_API_KEY: str = ""
-    LLM_MODEL: str = "qwen2.5-coder:14b"
+    LLM_MODEL: str = "qwen3.5:9b"
     EMBEDDING_MODEL: str = "nomic-embed-text"
     LLM_REQUEST_TIMEOUT: float = 30.0
     LLM_TEMPERATURE: float = 0.1

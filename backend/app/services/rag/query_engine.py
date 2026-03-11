@@ -8,6 +8,7 @@ import httpx
 
 from app.core.config import settings
 from app.services.rag.embedder import OllamaEmbedder
+from app.services.browser_service import BrowserService
 from app.utils.logging import get_logger
 
 logger = get_logger("query_engine")
@@ -16,13 +17,16 @@ SYSTEM_PROMPT = """Kamu adalah ExecMind, asisten AI yang membantu pejabat ekseku
 untuk mencari informasi dari dokumen internal.
 
 ATURAN KETAT:
-1. HANYA jawab berdasarkan konteks dokumen yang diberikan di bawah
-2. Jika informasi tidak ditemukan di dokumen, katakan:
+1. Jika pengguna meminta aksi yang dapat dilakukan oleh tool (seperti membuka browser atau memutar musik), gunakan tool tersebut terlebih dahulu.
+2. Jika pengguna meminta informasi, HANYA jawab berdasarkan konteks dokumen yang diberikan di bawah
+3. Jika informasi tidak ditemukan di dokumen, katakan:
    "Informasi tersebut tidak tersedia dalam dokumen yang saya akses."
-3. Selalu sebutkan nama dokumen sumber untuk setiap klaim
-4. Gunakan Bahasa Indonesia yang formal dan profesional
-5. Jangan berspekulasi atau menambahkan informasi di luar konteks
-6. Jika ada tabel atau data numerik, sajikan dengan format yang rapi"""
+4. Jika informasi diambil dari dokumen, selalu sebutkan nama dokumen sumber untuk setiap klaim
+5. Jika ada tabel atau data numerik, sajikan dengan format yang rapi
+6. Gunakan Bahasa Indonesia yang formal dan profesional.
+7. Jangan berspekulasi atau menambahkan informasi di luar konteks dokumen, KECUALI jika menggunakan tool untuk mencari informasi terbaru atau menjalankan aksi.
+8. Jika menggunakan tool, berikan jawaban akhir yang merangkum hasil dari tool tersebut.
+"""
 
 DANGEROUS_PATTERNS = [
     r"ignore previous instructions",
@@ -77,7 +81,7 @@ class RAGQueryEngine:
     """Orchestrates RAG queries: embed → retrieve → augment → generate.
 
     Uses Ollama for both embedding (nomic-embed-text) and LLM inference
-    (qwen2.5-coder:14b) with Qdrant for vector search.
+    (qwen3.5:9b) with Qdrant for vector search.
     """
 
     def __init__(
@@ -176,6 +180,23 @@ class RAGQueryEngine:
             {
                 "type": "function",
                 "function": {
+                    "name": "open_browser",
+                    "description": "Buka tab browser baru di komputer client pengguna untuk mengakses URL tertentu. Gunakan JIKA HANYA PENGGUNA MEMINTA BUKA BROWSER/TAB BARU untuk mencari video (misal youtube), membuka situs web (seperti detik.com), atau jika pengguna eksplisit meminta untuk membuka/mengunjungi halaman web/url.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "description": "URL lengkap yang akan dibuka (contoh: https://www.youtube.com/results?search_query=kucing)."
+                            }
+                        },
+                        "required": ["url"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "web_search",
                     "description": "Cari informasi di internet menggunakan mesin pencari. Gunakan ini JIKA DAN HANYA JIKA informasi tidak ada di dokumen atau pengguna meminta data terbaru.",
                     "parameters": {
@@ -189,88 +210,139 @@ class RAGQueryEngine:
                         "required": ["query"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "play_music",
+                    "description": "Buka YouTube Music dan putar lagu terakhir yang diputar atau rekomendasi utama. Gunakan JIKA DAN HANYA JIKA pengguna eksplisit meminta untuk memutar musik, lagu, atau membuka YT Music untuk mendengarkan lagu.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
             }
         ]
 
         # Step 4: Stream LLM response
         full_response = ""
         token_count = 0
+        any_tool_called = False
+        
+        # Determine num_ctx for this request
+        req_ctx = min(settings.LLM_CONTEXT_WINDOW, 16384)
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                # Agent loop: Send without stream first to check if a tool is called
-                response = await client.post(
-                    f"{self.ollama_url}/api/chat",
-                    json={
-                        "model": self.llm_model,
-                        "messages": messages,
-                        "stream": False,
-                        "tools": tools,
-                        "options": {"temperature": settings.LLM_TEMPERATURE, "num_ctx": settings.LLM_CONTEXT_WINDOW}
-                    }
-                )
-                response.raise_for_status()
-                data = response.json()
-                msg = data.get("message", {})
-                
-                # Check for tool usage
-                tool_calls_list = msg.get("tool_calls", [])
-                
-                # Fallback for models that output tool JSON in content
-                if not tool_calls_list and msg.get("content"):
-                    parsed_tools = parse_embedded_tool_call(msg.get("content", ""))
-                    if parsed_tools:
-                        tool_calls_list = parsed_tools
-                        msg["tool_calls"] = parsed_tools
-                        msg["content"] = ""
-
-                if tool_calls_list:
-                    # Add assistent tool_call intent to messages
-                    messages.append(msg)
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                # Agent loop: allow up to 3 tool call iterations
+                for turn in range(3):
+                    response = await client.post(
+                        f"{self.ollama_url}/api/chat",
+                        json={
+                            "model": self.llm_model,
+                            "messages": messages,
+                            "stream": False,
+                            "tools": tools,
+                            "options": {"temperature": settings.LLM_TEMPERATURE, "num_ctx": req_ctx}
+                        }
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    msg = data.get("message", {})
                     
-                    for tool_call in tool_calls_list:
-                        func = tool_call.get("function", {})
-                        if func.get("name") == "web_search":
-                            args = func.get("arguments", {})
-                            search_q = args.get("query", "")
-                            
-                            # Stream a status
-                            yield {"type": "token", "content": f"\n\n*🔍 Mencari di internet: '{search_q}'...*\n\n"}
-                            
-                            from ollama import AsyncClient
-                            try:
-                                # Run native Ollama web search
-                                client_kwargs = {"host": self.ollama_url}
-                                if settings.OLLAMA_API_KEY:
-                                    client_kwargs["headers"] = {"Authorization": f"Bearer {settings.OLLAMA_API_KEY}"}
+                    # Check for tool usage
+                    tool_calls_list = msg.get("tool_calls", [])
+                    
+                    # Fallback for models that output tool JSON in content
+                    if not tool_calls_list and msg.get("content"):
+                        parsed_tools = parse_embedded_tool_call(msg.get("content", ""))
+                        if parsed_tools:
+                            tool_calls_list = parsed_tools
+                            msg["tool_calls"] = parsed_tools
+                            msg["content"] = ""
+
+                    if tool_calls_list:
+                        any_tool_called = True
+                        # Add assistent tool_call intent to messages
+                        messages.append(msg)
+                        
+                        for tool_call in tool_calls_list:
+                            func = tool_call.get("function", {})
+                            if func.get("name") == "open_browser":
+                                args = func.get("arguments", {})
+                                url_to_open = args.get("url", "")
+                                
+                                yield {"type": "action", "action_name": "open_browser", "payload": {"url": url_to_open}}
+                                yield {"type": "token", "content": f"\n\n*🌐 Membuka {url_to_open} di tab baru...*\n\n"}
+                                
+                                messages.append({
+                                    "role": "tool",
+                                    "content": f"Berhasil memerintahkan client membuka URL: {url_to_open}. Beritahukan secara singkat bahwa halaman sudah dibuka.",
+                                    "tool_call_id": tool_call.get("id")
+                                })
+                                continue
+
+                            if func.get("name") == "web_search":
+                                args = func.get("arguments", {})
+                                search_q = args.get("query", "")
+                                
+                                # Stream a status
+                                yield {"type": "token", "content": f"\n\n*🔍 Mencari di internet: '{search_q}'...*\n\n"}
+                                
+                                from ollama import AsyncClient
+                                try:
+                                    # Run native Ollama web search
+                                    client_kwargs = {"host": self.ollama_url}
+                                    if settings.OLLAMA_API_KEY:
+                                        client_kwargs["headers"] = {"Authorization": f"Bearer {settings.OLLAMA_API_KEY}"}
+                                        
+                                    ollama_client = AsyncClient(**client_kwargs)
+                                    response = await ollama_client.web_search(search_q, max_results=3)
                                     
-                                client = AsyncClient(**client_kwargs)
-                                response = await client.web_search(search_q, max_results=3)
+                                    # Ollama new web_search returns WebSearchResponse object or list
+                                    if isinstance(response, list):
+                                        search_str = "\n".join([f"- {r.get('title', 'Unknown')}:\n{(r.get('content', ''))[:1500]}" for r in response])
+                                    elif hasattr(response, 'results') and response.results:
+                                        search_str = "\n".join([f"- {r.get('title', 'Unknown') if isinstance(r, dict) else r.title}:\n{(r.get('content', '') if isinstance(r, dict) else r.content)[:1500]}" for r in response.results])
+                                    elif getattr(response, 'body', None):
+                                        search_str = str(response.body)[:3000]
+                                    else:
+                                        search_str = str(response)[:3000]
+                                except Exception as e:
+                                    search_str = f"Pencarian Error: {e}\n(Mungkin memerlukan OLLAMA_API_KEY di .env)"
+                                    
+                                context_prompt = (
+                                    f"Gunakan informasi dari hasil pencarian internet berikut untuk '{search_q}':\n\n"
+                                    f"<search_results>\n{search_str}\n</search_results>\n\n"
+                                    "Kamu WAJIB menjawab berdasarkan informasi di atas, tulis dengan ringkas dan terstruktur."
+                                )
+                                    
+                                messages.append({
+                                    "role": "tool",
+                                    "content": context_prompt,
+                                    "tool_call_id": tool_call.get("id")
+                                })
+                                continue
+
+                            if func.get("name") == "play_music":
+                                yield {"type": "token", "content": "\n\n*🎵 Menjalankan otomatisasi YouTube Music...*\n\n"}
+                                yield {"type": "action", "action_name": "play_music", "payload": {}}
                                 
-                                # Ollama new web_search returns WebSearchResponse object or list
-                                if isinstance(response, list):
-                                    search_str = "\n".join([f"- {r.get('title', 'Unknown')}:\n{(r.get('content', ''))[:1500]}" for r in response])
-                                elif hasattr(response, 'results') and response.results:
-                                    search_str = "\n".join([f"- {r.get('title', 'Unknown') if isinstance(r, dict) else r.title}:\n{(r.get('content', '') if isinstance(r, dict) else r.content)[:1500]}" for r in response.results])
-                                elif getattr(response, 'body', None):
-                                    search_str = str(response.body)[:3000]
-                                else:
-                                    search_str = str(response)[:3000]
-                            except Exception as e:
-                                search_str = f"Pencarian Error: {e}\n(Mungkin memerlukan OLLAMA_API_KEY di .env)"
+                                browser_svc = BrowserService()
+                                result = await browser_svc.play_youtube_music()
                                 
-                            context_prompt = (
-                                f"Gunakan informasi dari hasil pencarian internet berikut untuk '{search_q}':\n\n"
-                                f"<search_results>\n{search_str}\n</search_results>\n\n"
-                                "Kamu WAJIB menjawab berdasarkan informasi di atas, tulis dengan ringkas dan terstruktur."
-                            )
-                                
-                            messages.append({
-                                "role": "tool",
-                                "content": context_prompt
-                            })
-                            
-                    # Stream the final conclusion back
+                                messages.append({
+                                    "role": "tool",
+                                    "content": f"Status otomatisasi musik: {result.get('message', 'Selesai')}",
+                                    "tool_call_id": tool_call.get("id")
+                                })
+                                continue
+                        
+                        # Continue the outer loop to let LLM decide next steps based on tool content
+                        continue
+                    
+                    # If no tools were called IN THIS TURN, stream the final conclusion back
                     async with client.stream(
                         "POST",
                         f"{self.ollama_url}/api/chat",
@@ -292,27 +364,15 @@ class RAGQueryEngine:
                                 token_count += 1
                                 yield {"type": "token", "content": token}
                             if chunk.get("done", False): break
-                else:
-                    # No tool called, fake-stream the result for good UX
-                    content = msg.get("content", "")
-                    if content:
-                        import asyncio
-                        # Using space yields instead of single character for speed 
-                        words = content.split(" ")
-                        for i, word in enumerate(words):
-                            suffix = " " if i < len(words) - 1 else ""
-                            token = word + suffix
-                            yield {"type": "token", "content": token}
-                            full_response += token
-                            token_count += 1
-                            await asyncio.sleep(0.02)
-
+                    
+                    # We reached final answer
+                    break
         except Exception as e:
             logger.error("llm_streaming_failed", error=str(e))
             yield {"type": "token", "content": f"\n\n⚠️ Terjadi kesalahan saat memproses jawaban: {str(e)}"}
 
-        # Step 5: Yield sources
-        if sources:
+        # Step 5: Yield sources (only if no tools were called to avoid irrelevant source display)
+        if sources and not any_tool_called:
             yield {"type": "sources", "sources": sources}
 
         # Step 6: Yield done
@@ -379,6 +439,23 @@ class RAGQueryEngine:
             {
                 "type": "function",
                 "function": {
+                    "name": "open_browser",
+                    "description": "Buka tab browser baru di komputer client pengguna untuk mengakses URL tertentu. Gunakan JIKA HANYA PENGGUNA MEMINTA BUKA BROWSER/TAB BARU untuk mencari video (misal youtube), membuka situs web (seperti detik.com), atau jika pengguna eksplisit meminta untuk membuka/mengunjungi halaman web/url.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "description": "URL lengkap yang akan dibuka (contoh: https://www.youtube.com/results?search_query=kucing)."
+                            }
+                        },
+                        "required": ["url"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "web_search",
                     "description": "Cari informasi di internet menggunakan mesin pencari. Gunakan ini JIKA DAN HANYA JIKA pengguna bertanya tentang informasi terkini/saat ini, kurs mata uang, atau data yang tidak Anda ketahui.",
                     "parameters": {
@@ -400,79 +477,96 @@ class RAGQueryEngine:
 
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
-                # Agent loop: Send without stream first to check if a tool is called
-                response = await client.post(
-                    f"{self.ollama_url}/api/chat",
-                    json={
-                        "model": self.llm_model,
-                        "messages": messages,
-                        "stream": False,
-                        "tools": tools,
-                        "options": {"temperature": settings.LLM_TEMPERATURE, "num_ctx": settings.LLM_CONTEXT_WINDOW}
-                    }
-                )
-                response.raise_for_status()
-                data = response.json()
-                msg = data.get("message", {})
-                
-                # Check for tool usage
-                tool_calls_list = msg.get("tool_calls", [])
-                
-                # Fallback for models that output tool JSON in content
-                if not tool_calls_list and msg.get("content"):
-                    parsed_tools = parse_embedded_tool_call(msg.get("content", ""))
-                    if parsed_tools:
-                        tool_calls_list = parsed_tools
-                        msg["tool_calls"] = parsed_tools
-                        msg["content"] = ""
-
-                if tool_calls_list:
-                    # Add assistent tool_call intent to messages
-                    messages.append(msg)
+                # Agent loop: allow up to 3 tool call iterations
+                for turn in range(3):
+                    response = await client.post(
+                        f"{self.ollama_url}/api/chat",
+                        json={
+                            "model": self.llm_model,
+                            "messages": messages,
+                            "stream": False,
+                            "tools": tools,
+                            "options": {"temperature": settings.LLM_TEMPERATURE, "num_ctx": req_ctx}
+                        }
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    msg = data.get("message", {})
                     
-                    for tool_call in tool_calls_list:
-                        func = tool_call.get("function", {})
-                        if func.get("name") == "web_search":
-                            args = func.get("arguments", {})
-                            search_q = args.get("query", "")
+                    # Check for tool usage
+                    tool_calls_list = msg.get("tool_calls", [])
+                    
+                    # Fallback for models that output tool JSON in content
+                    if not tool_calls_list and msg.get("content"):
+                        parsed_tools = parse_embedded_tool_call(msg.get("content", ""))
+                        if parsed_tools:
+                            tool_calls_list = parsed_tools
+                            msg["tool_calls"] = parsed_tools
+                            msg["content"] = ""
+
+                    if tool_calls_list:
+                        # Add assistent tool_call intent to messages
+                        messages.append(msg)
+                        
+                        for tool_call in tool_calls_list:
+                            func = tool_call.get("function", {})
+                            if func.get("name") == "open_browser":
+                                args = func.get("arguments", {})
+                                url_to_open = args.get("url", "")
+                                
+                                yield {"type": "action", "action_name": "open_browser", "payload": {"url": url_to_open}}
+                                yield {"type": "token", "content": f"\n\n*🌐 Membuka {url_to_open} di tab baru...*\n\n"}
                             
-                            # Stream a status
-                            yield {"type": "token", "content": f"\n\n*🔍 Mencari di internet: '{search_q}'...*\n\n"}
-                            
-                            from ollama import AsyncClient
-                            try:
-                                # Run native Ollama web search
-                                client_kwargs = {"host": self.ollama_url}
-                                if settings.OLLAMA_API_KEY:
-                                    client_kwargs["headers"] = {"Authorization": f"Bearer {settings.OLLAMA_API_KEY}"}
+                                messages.append({
+                                    "role": "tool",
+                                    "content": f"Berhasil memerintahkan client membuka URL: {url_to_open}. Beritahukan secara singkat bahwa halaman sudah dibuka."
+                                })
+                                continue
+
+                            if func.get("name") == "web_search":
+                                args = func.get("arguments", {})
+                                search_q = args.get("query", "")
+                                
+                                # Stream a status
+                                yield {"type": "token", "content": f"\n\n*🔍 Mencari di internet: '{search_q}'...*\n\n"}
+                                
+                                from ollama import AsyncClient
+                                try:
+                                    # Run native Ollama web search
+                                    client_kwargs = {"host": self.ollama_url}
+                                    if settings.OLLAMA_API_KEY:
+                                        client_kwargs["headers"] = {"Authorization": f"Bearer {settings.OLLAMA_API_KEY}"}
+                                        
+                                    ollama_client = AsyncClient(**client_kwargs)
+                                    response = await ollama_client.web_search(search_q, max_results=3)
                                     
-                                ollama_client = AsyncClient(**client_kwargs)
-                                response = await ollama_client.web_search(search_q, max_results=3)
-                                
-                                # Ollama new web_search returns WebSearchResponse object or list
-                                if isinstance(response, list):
-                                    search_str = "\n".join([f"- {r.get('title', 'Unknown')}:\n{(r.get('content', ''))[:1500]}" for r in response])
-                                elif hasattr(response, 'results') and response.results:
-                                    search_str = "\n".join([f"- {r.get('title', 'Unknown') if isinstance(r, dict) else r.title}:\n{(r.get('content', '') if isinstance(r, dict) else r.content)[:1500]}" for r in response.results])
-                                elif getattr(response, 'body', None):
-                                    search_str = str(response.body)[:3000]
-                                else:
-                                    search_str = str(response)[:3000]
-                            except Exception as e:
-                                search_str = f"Pencarian Error: {e}\n(Mungkin memerlukan OLLAMA_API_KEY di .env)"
-                                
-                            context_prompt = (
-                                f"Gunakan informasi dari hasil pencarian internet berikut untuk '{search_q}':\n\n"
-                                f"<search_results>\n{search_str}\n</search_results>\n\n"
-                                "Kamu WAJIB menjawab berdasarkan informasi di atas, tulis dengan ringkas dan terstruktur."
-                            )
-                                
-                            messages.append({
-                                "role": "tool",
-                                "content": context_prompt
-                            })
-                            
-                    # Stream the final conclusion back
+                                    # Ollama new web_search returns WebSearchResponse object or list
+                                    if isinstance(response, list):
+                                        search_str = "\n".join([f"- {r.get('title', 'Unknown')}:\n{(r.get('content', ''))[:1500]}" for r in response])
+                                    elif hasattr(response, 'results') and response.results:
+                                        search_str = "\n".join([f"- {r.get('title', 'Unknown') if isinstance(r, dict) else r.title}:\n{(r.get('content', '') if isinstance(r, dict) else r.content)[:1500]}" for r in response.results])
+                                    elif getattr(response, 'body', None):
+                                        search_str = str(response.body)[:3000]
+                                    else:
+                                        search_str = str(response)[:3000]
+                                except Exception as e:
+                                    search_str = f"Pencarian Error: {e}\n(Mungkin memerlukan OLLAMA_API_KEY di .env)"
+                                    
+                                context_prompt = (
+                                    f"Gunakan informasi dari hasil pencarian internet berikut untuk '{search_q}':\n\n"
+                                    f"<search_results>\n{search_str}\n</search_results>\n\n"
+                                    "Kamu WAJIB menjawab berdasarkan informasi di atas, tulis dengan ringkas dan terstruktur."
+                                )
+                                    
+                                messages.append({
+                                    "role": "tool",
+                                    "content": context_prompt
+                                })
+                        
+                        # Continue the outer loop to let LLM decide next steps based on tool content
+                        continue
+                    
+                    # If no tools were called IN THIS TURN, stream the final conclusion back
                     async with client.stream(
                         "POST",
                         f"{self.ollama_url}/api/chat",
@@ -494,20 +588,9 @@ class RAGQueryEngine:
                                 token_count += 1
                                 yield {"type": "token", "content": token}
                             if chunk.get("done", False): break
-                else:
-                    # No tool called, fake-stream the result
-                    content = msg.get("content", "")
-                    if content:
-                        import asyncio
-                        words = content.split(" ")
-                        for i, word in enumerate(words):
-                            suffix = " " if i < len(words) - 1 else ""
-                            token = word + suffix
-                            yield {"type": "token", "content": token}
-                            full_response += token
-                            token_count += 1
-                            await asyncio.sleep(0.02)
-
+                    
+                    # We reached final answer
+                    break
         except Exception as e:
             logger.error("llm_simple_chat_failed", error=str(e))
             yield {"type": "token", "content": f"\n\n⚠️ Terjadi kesalahan. Silakan coba lagi. Error: {e}"}

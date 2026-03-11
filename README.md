@@ -19,7 +19,7 @@ Aplikasi ini dibagi menjadi tumpukan teknologi modern:
 - **Backend Daya-Tinggi**: FastAPI (Python), menggunakan _asynchronous routines_.
 - **Database Relasional**: PostgreSQL dengan SQLAlchemy ORM dan Asyncpg.
 - **Vector Database**: Qdrant untuk pencarian kemiripan dokumen berkecepatan tinggi.
-- **AI / LLM Engine**: Ollama (menjalankan model open-source seperti `qwen2.5-coder:14b` dan text-embedding `nomic-embed-text` secara *on-premise*).
+- **AI / LLM Engine**: Ollama (menjalankan model open-source seperti `qwen3.5:9b` dan text-embedding `nomic-embed-text` secara *on-premise*).
 - **Frontend**: Vite SPA untuk pengalaman antarmuka (User Interface) interaktif nan responsif.
 
 ## Prasyarat Lingkungan (Prerequisites)

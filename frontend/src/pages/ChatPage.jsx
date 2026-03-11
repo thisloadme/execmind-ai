@@ -146,6 +146,17 @@ export default function ChatPage() {
     };
     setMessages((prev) => [...prev, assistantMessage]);
 
+    // Heuristik untuk membypass popup blocker:
+    // Jika prompt user sepertinya akan meminta buka tab (mengandung kata kunci tertentu),
+    // kita buka tab kosong 'about:blank' di dalam call stack *click/submit event* ini.
+    const isLikelyBrowserAction = /buka|youtube|cari|video|web|situs|halaman|google|artikel|website|url|berita|link|telusuri|search|open/i.test(inputValue);
+    let actionTab = null;
+    let actionTabUsed = false;
+
+    if (isLikelyBrowserAction) {
+      actionTab = window.open('about:blank', '_blank');
+    }
+
     try {
       const reader = await chatApi.sendMessage(currentSessionId, userMessage.content, filesToSend);
       const decoder = new TextDecoder();
@@ -195,6 +206,21 @@ export default function ChatPage() {
                   }
                   return updated;
                 });
+              } else if (eventType === 'action') {
+                if (data.action_name === 'open_browser' && data.payload && data.payload.url) {
+                  if (actionTab) {
+                    actionTab.location.href = data.payload.url;
+                    actionTab.focus();
+                    actionTabUsed = true;
+                  } else {
+                    // Fallback in case heuristic didn't catch it
+                    window.open(data.payload.url, '_blank', 'noopener,noreferrer');
+                  }
+                } else if (data.action_name === 'play_music') {
+                  // Logic already handled on backend (BrowserService opens browser on user machine)
+                  // We just give visual feedback.
+                  console.log("Music automation triggered");
+                }
               } else if (eventType === 'done') {
                 isDone = true;
               }
@@ -222,6 +248,12 @@ export default function ChatPage() {
       });
     } finally {
       setIsStreaming(false);
+
+      // Clean up the pre-opened tab if LLM didn't actually use open_browser
+      if (actionTab && !actionTabUsed) {
+        actionTab.close();
+      }
+
       loadSessions(); // Refresh session list for title update
     }
   }, [inputValue, isStreaming, activeSessionId, selectedCollection]);
