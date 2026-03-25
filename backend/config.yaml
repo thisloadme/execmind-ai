@@ -1,0 +1,70 @@
+# ExecMind — Agent Tool Configuration
+# Adjust enabled/settings per your security requirements.
+
+tools:
+  # ── Browser Tools ────────────────────────────────────────────────────
+  open_browser:
+    enabled: true  # Signals frontend to open a URL in a new tab
+
+  web_search:
+    enabled: true  # Uses Ollama's web search. Requires OLLAMA_API_KEY in .env
+
+  play_music:
+    enabled: true  # Playwright automation on server machine
+
+  # ── System Tools ─────────────────────────────────────────────────────
+  shell_exec:
+    enabled: true   # Change to true to allow shell commands
+    sandbox: true
+    # Only commands in this list can be executed (base command, no flags needed here)
+    allowed_commands:
+      - ls
+      - cat
+      - grep
+      - head
+      - tail
+      - wc
+      - find
+      - df
+      - free
+      - uptime
+      - ps
+      - whoami
+      - pwd
+      - echo
+      - date
+    timeout_seconds: 30
+
+  file_read:
+    enabled: true   # Change to true to allow file reads
+    allowed_paths:
+      - /tmp
+      - /data/reports
+      - /data/documents
+    max_file_size_mb: 10
+
+  file_write:
+    enabled: true   # Change to true to allow file writes
+    allowed_paths:
+      - /tmp
+      - /data/outputs
+
+  http_request:
+    enabled: true
+    # Leave empty to allow all domains, or specify a whitelist:
+    # allowed_domains:
+    #   - api.internal.company.com
+    #   - data.gov.id
+    allowed_domains: []
+    timeout_seconds: 15
+
+  # ── Memory Tools ─────────────────────────────────────────────────────
+  memory_read:
+    enabled: true  # Read user's stored long-term facts
+
+  memory_write:
+    enabled: true  # Write key-value facts to user's long-term memory
+
+# ── Agent Runtime Settings ────────────────────────────────────────────
+agent:
+  max_tool_iterations: 5  # Max agentic loop turns before forcing final answer

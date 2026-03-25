@@ -207,19 +207,32 @@ export default function ChatPage() {
                   return updated;
                 });
               } else if (eventType === 'action') {
-                if (data.action_name === 'open_browser' && data.payload && data.payload.url) {
+                const { action_name, payload } = data;
+
+                if (action_name === 'open_browser' && payload?.url) {
                   if (actionTab) {
-                    actionTab.location.href = data.payload.url;
+                    actionTab.location.href = payload.url;
                     actionTab.focus();
                     actionTabUsed = true;
                   } else {
-                    // Fallback in case heuristic didn't catch it
-                    window.open(data.payload.url, '_blank', 'noopener,noreferrer');
+                    window.open(payload.url, '_blank', 'noopener,noreferrer');
                   }
-                } else if (data.action_name === 'play_music') {
-                  // Logic already handled on backend (BrowserService opens browser on user machine)
-                  // We just give visual feedback.
-                  console.log("Music automation triggered");
+                } else if (action_name === 'play_music') {
+                  console.log('[ExecMind] Music automation triggered on server');
+                } else if (action_name === 'shell_exec') {
+                  console.log('[ExecMind] Shell command executed:', payload?.command);
+                } else if (action_name === 'file_read') {
+                  console.log('[ExecMind] File read:', payload?.path);
+                } else if (action_name === 'file_write') {
+                  console.log('[ExecMind] File written:', payload?.path);
+                } else if (action_name === 'http_request') {
+                  console.log('[ExecMind] HTTP request:', payload?.method, payload?.url, '→', payload?.status);
+                } else if (action_name === 'memory_write') {
+                  console.log('[ExecMind] Memory stored:', payload?.key);
+                } else if (action_name === 'memory_read') {
+                  console.log('[ExecMind] Memory read:', payload?.key);
+                } else if (action_name === 'web_search') {
+                  console.log('[ExecMind] Web search:', payload?.query);
                 }
               } else if (eventType === 'done') {
                 isDone = true;

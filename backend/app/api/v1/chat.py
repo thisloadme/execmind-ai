@@ -28,6 +28,7 @@ from app.services.chat_service import ChatService
 from app.services.kb_service import KBService
 from app.services.rag.document_processor import DocumentProcessor
 from app.services.rag.query_engine import RAGQueryEngine
+from app.tools.base import ToolContext
 from app.utils.logging import get_logger
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -265,6 +266,13 @@ async def send_message(
             if history and history[-1]["role"] == "user":
                 history = history[:-1]
             
+            # Build tool context for DB-backed tools (memory, audit)
+            ctx = ToolContext(
+                user_id=current_user.id,
+                session_id=session_id,
+                db_session=db,
+            )
+
             if collection:
                 # RAG-augmented query
                 try:
@@ -280,6 +288,7 @@ async def send_message(
                     collection_id=str(collection.id),
                     conversation_history=history,
                     images=image_b64s if image_b64s else None,
+                    tool_context=ctx,
                 )
             else:
                 # Simple chat without RAG
@@ -287,6 +296,7 @@ async def send_message(
                     query=final_query,
                     conversation_history=history,
                     images=image_b64s if image_b64s else None,
+                    tool_context=ctx,
                 )
 
             async for chunk in stream:

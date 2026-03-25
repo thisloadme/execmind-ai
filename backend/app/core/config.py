@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     CONVERSATION_CONTEXT_WINDOW: int = 20
     LLM_CONTEXT_WINDOW: int = 131072
 
+    # Agentic Tool System
+    TOOLS_CONFIG_PATH: str = "config.yaml"  # Relative to backend root
+    AGENT_MAX_TOOL_ITERATIONS: int = 5  # Override; config.yaml takes precedence if set
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse comma-separated CORS origins into a list."""
